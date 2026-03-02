@@ -107,6 +107,7 @@ def _scripts_arg():
         # FIXME(DUX-5633): Retire workers when their configuration becomes
         # inactive or the build is under memory pressure, perhaps in buck-proxy.
         "_worker": _worker_attr(),
+        "_ghc_proxy": attrs.option(attrs.exec_dep(providers = [RunInfo]), default = None),
     }
 
 def _external_tools_arg():

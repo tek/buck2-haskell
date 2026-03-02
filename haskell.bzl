@@ -1182,6 +1182,7 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
         worker = haskell_toolchain.worker[WorkerInfo]
 
     skeleton = target_skeleton(ctx, sources)
+    ghc_proxy = ctx.attrs._ghc_proxy[RunInfo] if ctx.attrs._ghc_proxy else None
 
     # Validate and compute GHC plugin flags.
     validate_plugins_attrs(ctx)
@@ -1212,6 +1213,7 @@ def haskell_library_impl(ctx: AnalysisContext) -> list[Provider]:
                 is_binary = False,
                 sources = sources,
                 worker = worker,
+                ghc_proxy = ghc_proxy,
             )
             if link_style == LinkStyle("shared") and not enable_profiling:
                 def_md_file = md_file
@@ -1702,6 +1704,7 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
         worker = ctx.attrs._worker[WorkerInfo]
     elif haskell_toolchain.worker:
         worker = haskell_toolchain.worker[WorkerInfo]
+    ghc_proxy = ctx.attrs._ghc_proxy[RunInfo] if ctx.attrs._ghc_proxy else None
 
     main = ctx.attrs.main
     src_main = ctx.attrs.src_main
@@ -1726,6 +1729,7 @@ def _haskell_executable(ctx: AnalysisContext) -> HaskellExecutableOutput:
         is_binary = True,
         sources = sources,
         worker = worker,
+        ghc_proxy = ghc_proxy,
     )
 
     (pkgname, libname) = make_haskell_names_from_label(ctx.label, False)
@@ -2444,6 +2448,7 @@ def haskell_eval_test_impl(ctx: AnalysisContext) -> list[Provider]:
         is_binary = False,
         sources = sources + [toplevel],
         worker = worker,
+        ghc_proxy = None,
     )
 
     (pkgname, libname) = make_haskell_names_from_label(ctx.label, False)

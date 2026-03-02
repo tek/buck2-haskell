@@ -505,6 +505,7 @@ MetadataParams = record(
     strip_prefix = field(str),
     suffix = field(str),
     worker = field(None | WorkerInfo),
+    ghc_proxy = field(None | RunInfo),
     allow_worker = field(bool),
     allow_cache_upload = field(bool),
     label = field(Label),
@@ -551,6 +552,10 @@ def _dynamic_target_metadata_impl(
     package_flag = _package_flag(haskell_toolchain)
 
     (ghc_args, buck2_args) = metadata_unit_args(actions, munit, packages_info, output)
+
+    # The proxy produces the build plan itself and does not use `-M`.
+    if not is_worker_execute and not arg.ghc_proxy:
+        ghc_args.add("-M")
 
     buck_args_file = argfile(
         actions = actions,
@@ -614,7 +619,22 @@ def _dynamic_target_metadata_impl(
     else:
         md_args = cmd_args()
 
-        md_args.add("--ghc", haskell_toolchain.compiler)
+        # The GHC proxy is an executable in the ghc-persistent-worker package that exposes the same build plan logic
+        # as the worker, allowing us to unify metadata for the two variants.
+        if arg.ghc_proxy:
+            md_args.add("--ghc", arg.ghc_proxy)
+            proxy_args = [
+                "--ghc-dir",
+                haskell_toolchain.ghc_dir,
+                "--unit",
+                unit.name,
+                "--fields",
+                "exposed_modules,module_graph,package_deps,toolchain_deps,th_modules,cache",
+            ]
+            md_args.add(cmd_args(proxy_args, format = "--direct-arg={}"))
+            md_args.add("--proxy")
+        else:
+            md_args.add("--ghc", haskell_toolchain.compiler)
 
         md_args.add(cmd_args(ghc_args, format = "--ghc-arg={}"))
 
@@ -670,7 +690,8 @@ def target_metadata(
         main: None | str,
         is_binary: bool,
         sources: list[Artifact],
-        worker: WorkerInfo | None) -> Artifact:
+        worker: WorkerInfo | None,
+        ghc_proxy: RunInfo | None) -> Artifact:
     prof_suffix = "-prof" if enable_profiling else ""
     link_suffix = "-" + link_style.value
     md_file = ctx.actions.declare_output(ctx.label.name + link_suffix + prof_suffix + ".md.json")
@@ -772,6 +793,7 @@ def target_metadata(
             strip_prefix = str(ctx.label.path),
             suffix = link_style.value + ("+prof" if enable_profiling else ""),
             worker = worker,
+            ghc_proxy = ghc_proxy,
             allow_worker = allow_worker,
             allow_cache_upload = ctx.attrs.allow_cache_upload,
             label = ctx.label,
