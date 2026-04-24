@@ -547,7 +547,7 @@ def _dynamic_target_metadata_impl(
       proxy_args = [
         "--ghc-dir", haskell_toolchain.ghc_dir,
         "--unit", unit.name,
-        "--fields", "exposed_modules,module_graph,package_deps,toolchain_deps,th_modules,cache",
+        "--fields", "exposed_modules,module_graph,package_deps,toolchain_deps,th_modules,project_deps,cache",
       ]
       md_args.add(cmd_args(proxy_args, format = "--direct-arg={}", relative_to = arg.cell_root))
       md_args.add("--proxy")
