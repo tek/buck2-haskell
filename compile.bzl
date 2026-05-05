@@ -615,11 +615,23 @@ def _dynamic_target_metadata_impl(
             bp_args.add("--unit-is-binary")
         bp_args.add(cmd_args(ghc_args_file, prepend = "--ghc-args", hidden = [build_plan.as_output(), makefile.as_output()]))
 
+        # A file used only by the worker to store reference values for the source hashes of the current build as well as
+        # the current build plan, in order to determine source changes for incremental build plans in subsequent builds.
+        # This requires `no_outputs_cleanup` to be set in the action below; otherwise, the file would be deleted before
+        # the action is executed.
+        incremental_state = actions.declare_output("incremental.json")
+        bp_args.add(cmd_args(incremental_state.as_output(), prepend = "--incremental"))
+
         actions.run(
             bp_args,
             category = "haskell_buildplan",
             identifier = arg.suffix if arg.suffix else None,
             exe = WorkerRunInfo(worker = arg.worker),
+            # Buck writes the hashes of all inputs to the file in `metadata_path`, allowing the worker to recompute the
+            # module graph partially for changed files.
+            metadata_env_var = "buck_source_hashes",
+            metadata_path = "source_hashes.json",
+            no_outputs_cleanup = True,
         )
         md_args.add(dep_units)
         md_args.add("--build-plan", build_plan)
