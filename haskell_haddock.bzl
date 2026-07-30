@@ -88,7 +88,7 @@ def _haddock_dump_interface(
             "--hoogle",
             cmd_args(
                 haddock_info.interface,
-                format="--one-shot-hi={}"),
+                format="--incremental={}"),
             cmd_args(
                 [haddock_info.project_as_args("interfaces") for haddock_info in this_package_modules],
             ),
