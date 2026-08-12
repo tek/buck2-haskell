@@ -35,7 +35,7 @@ _HaddockInfo = record(
 )
 
 def _haskell_interfaces_args(info: _HaddockInfo):
-    return cmd_args(info.interface, format="--one-shot-dep-hi={}")
+    return cmd_args(info.interface, format="--read-interface={}")
 
 _HaddockInfoTSet = transitive_set(
     args_projections = {
@@ -87,13 +87,16 @@ def _haddock_dump_interface(
             "--html",
             "--hoogle",
             cmd_args(
-                haddock_info.interface,
+                module_name,
                 format="--incremental={}"),
+            cmd_args(
+                haddock_info.interface,
+                format="--read-interface={}"),
             cmd_args(
                 [haddock_info.project_as_args("interfaces") for haddock_info in this_package_modules],
             ),
             cmd_args(
-                cross_interfaces, format="--one-shot-dep-hi={}"
+                cross_interfaces, format="--read-interface={}"
             )
         ),
         category = "haskell_haddock",
