@@ -369,8 +369,10 @@ def direct_metadata_static(actions: AnalysisActions, pkgname: str, libs: list[Ha
         prepend = "--dep-units-static",
     )
 
+_gbc_enabled = read_root_config("haskell", "gbc", "false").lower() in ["true", "yes", "on"]
+
 def add_output_dirs(args: cmd_args, output_dir: cmd_args):
-    for dir in ["o", "hi", "hie", "dump"]:
+    for dir in ["o", "hi", "hie", "dump"] + (["gbc"] if _gbc_enabled else []):
         args.add("-{}dir".format(dir), output_dir)
 
 UnitParams = record(
