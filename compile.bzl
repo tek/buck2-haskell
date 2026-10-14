@@ -324,8 +324,10 @@ def transitive_metadata(actions: AnalysisActions, pkgname: str, packages_info: P
     actions.write_json(dep_units_file, dep_units, with_inputs = True, pretty = True)
     return cmd_args(dep_units_file, prepend = "--dep-units")
 
+_gbc_enabled = read_root_config("haskell", "gbc", "false").lower() in ["true", "yes", "on"]
+
 def add_output_dirs(args: cmd_args, output_dir: cmd_args):
-    for dir in ["o", "hi", "hie", "dump"]:
+    for dir in ["o", "hi", "hie", "dump"] + (["gbc"] if _gbc_enabled else []):
         args.add("-{}dir".format(dir), output_dir)
 
 UnitParams = record(
