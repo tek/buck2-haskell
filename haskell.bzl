@@ -54,6 +54,7 @@ load(
 )
 load(
     ":compile.bzl",
+    "CompiledModuleTSet",
     "CompileResultInfo",
     "DynamicCompileResultInfo",
     "compile",
@@ -2400,5 +2401,130 @@ def haskell_test_impl(ctx: AnalysisContext) -> list[Provider]:
 
     if exe.index_info:
         providers.append(exe.index_info)
+
+    return providers
+
+def _dynamic_haskell_eval_impl(
+        actions: AnalysisActions,
+        dyn_compile_result_info: ResolvedDynamicValue,
+        output: OutputArtifact,
+    ) -> list[Provider]:
+    tsets_dict = dyn_compile_result_info.providers[DynamicCompileResultInfo].modules
+    root_tset = actions.tset(CompiledModuleTSet, children = tsets_dict.values())
+    dep_modules = reversed(root_tset.project_as_json("dep_modules", ordering = "topological").traverse())
+    actions.write_json(output, dep_modules, pretty = True)
+    return []
+
+_dynamic_haskell_eval = dynamic_actions(
+    impl = _dynamic_haskell_eval_impl,
+    attrs = {
+        "dyn_compile_result_info": dynattrs.dynamic_value(),
+        "output": dynattrs.output(),
+    }
+)
+
+def haskell_eval_test_impl(ctx: AnalysisContext) -> list[Provider]:
+    sources = ctx.attrs.srcs
+    worker = ctx.attrs._worker[WorkerInfo]
+    link_style = LinkStyle("shared")
+    enable_profiling = False
+    artifact_suffix = get_artifact_suffix(link_style, False)
+
+    # This top-level generated haskell file keeps the rule's module set non-trivial; it is currently empty.
+    toplevel = ctx.actions.declare_output("TopLevel.hs")
+
+    ctx.actions.write(toplevel.as_output(), "module TopLevel where\n")
+
+    md_file = target_metadata(
+        ctx,
+        link_style = link_style,
+        enable_profiling = False,
+        enable_haddock = False,
+        main = None,
+        is_binary = False,
+        sources = sources + [toplevel],
+        worker = worker,
+    )
+
+    (pkgname, libname) = make_haskell_names_from_label(ctx.label, False)
+
+    compiled = compile(
+        ctx,
+        link_style,
+        incremental = ctx.attrs.incremental,
+        enable_profiling = enable_profiling,
+        enable_haddock = False,
+        md_file = md_file,
+        worker = worker,
+        pkgname = pkgname,
+        is_haskell_binary = True,
+        src_main = None,
+        plugin_params = compute_plugin_flags(ctx, link_style),
+        is_interp = True,
+        extra_srcs = [toplevel],
+    )
+
+    haskell_toolchain = ctx.attrs._haskell_toolchain[HaskellToolchainInfo]
+    modname = src_to_module_name(sources[0].short_path) # ctx.attrs.modname
+
+    eval_target_name = str(ctx.label.path).replace("//","_").replace("/","_") + "_" + ctx.label.name + ":eval"
+
+    interfaces = {}
+    for hi in compiled.interfaces:
+        key = paths.replace_extension(hi.short_path, "")
+        if not key in interfaces:
+            interfaces[key] = hi
+
+    output = ctx.actions.declare_output("eval_dep_modules")
+    ctx.actions.dynamic_output_new(_dynamic_haskell_eval(
+        dyn_compile_result_info = compiled.module_tsets,
+        output = output.as_output(),
+    ))
+
+    args_count_failures = ["--eval-count-failures"] if ctx.attrs.count_failures else []
+    args_executor = ["--executor", ctx.attrs.executor] if ctx.attrs.executor else []
+
+    args_env = []
+    for key, value in ctx.attrs.env.items():
+        args_env.extend(["--eval-env", key + "=" + value])
+
+    args_hidden = []
+    args_hidden.append(interfaces.values())
+    command = [
+        cmd_args(
+            "--worker-mode",
+            "evaluate",
+            "--worker-target-id",
+            "singleton",
+            "--ghc-dir",
+            haskell_toolchain.ghc_dir,
+            "--unit",
+            pkgname,
+            "--dep-modules",
+            output,
+            "--module",
+            modname,
+            "--home-unit",
+            md_file,
+            "--expression",
+            ctx.attrs.expr,
+            "--eval-target-name",
+            eval_target_name,
+            hidden = args_hidden),
+        cmd_args(args_count_failures),
+        cmd_args(args_executor),
+        cmd_args(args_env),
+        cmd_args(ctx.attrs.compiler_flags),
+    ]
+
+    providers = [
+        DefaultInfo(default_output = output),
+        ExternalRunnerTestInfo(
+            type = "custom",
+            command = command,
+            worker = worker,
+            labels = ctx.attrs.labels,
+        ),
+    ]
 
     return providers

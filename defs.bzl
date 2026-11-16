@@ -8,6 +8,7 @@ load("@prelude//linking:types.bzl", "Linkage")
 load(
     ":haskell.bzl",
     "haskell_binary_impl",
+    "haskell_eval_test_impl",
     "haskell_library_impl",
     "haskell_link_group_impl",
     "haskell_prebuilt_library_impl",
@@ -338,6 +339,40 @@ haskell_test = rule(
             "_inject_test_env": attrs.default_only(attrs.dep(default = "prelude//test/tools:inject_test_env")),
         } |
         re_test_common.test_args()
+    ),
+)
+
+haskell_eval_test = rule(
+    impl = haskell_eval_test_impl,
+    attrs = (
+        haskell_common.deps_arg() |
+        haskell_common.compiler_flags_arg() |
+        haskell_common.srcs_arg() |
+        haskell_common.scripts_arg() |
+        haskell_common.external_tools_arg() |
+        haskell_common.allow_cache_upload_arg() |
+        haskell_common.incremental_arg() |
+        haskell_common.module_prefix_arg() |
+        haskell_common.strip_prefix_arg() |
+        haskell_common.extra_libraries_arg() |
+        haskell_common.ghc_rts_flags_arg() |
+        haskell_common.srcs_envs_arg() |
+        {
+            "modname": attrs.string(),
+            "expr": attrs.string(),
+            "count_failures": attrs.bool(default = False, doc = "Interpret an `IO (Int, Int)` result of `expr` as `(total, failed)` and fail if `failed /= 0`."),
+            "executor": attrs.option(attrs.string(), default = None, doc = "Run `expr` in the persistent executor subprocess with this id, which is shared by all tests that specify the same id. Only supported with the worker, for `expr` of type `IO ()` or `IO String`."),
+            "env": attrs.dict(key = attrs.string(), value = attrs.string(), sorted = False, default = {}, doc = "Environment variables to set in the process that evaluates `expr`. Only supported with the worker's `executor`."),
+            "allow_worker": attrs.bool(default = True),
+            "labels": attrs.list(attrs.string(), default = []),
+
+            # extra needed (from rules_impl.bzl)
+            "auto_link_groups": attrs.bool(default = False),
+            "link_group_map": LINK_GROUP_MAP_ATTR,
+            "template_deps": attrs.list(attrs.exec_dep(providers = [HaskellLibraryProvider]), default = []),
+            "_cxx_toolchain": toolchains_common.cxx(),
+            "_haskell_toolchain": haskell_toolchain(),
+        }
     ),
 )
 
