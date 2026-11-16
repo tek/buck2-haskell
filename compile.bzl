@@ -200,6 +200,7 @@ _DynamicDoCompileOptions = record(
     srcs_plugin_flags = field(dict[typing.Any, cmd_args], default = {}),
     # Per-source plugin tool paths (from `srcs_plugins` attr). Source -> list[RunInfo].
     srcs_plugin_tool_paths = field(dict[typing.Any, typing.Any], default = {}),
+    is_interp = field(bool, default = False),
 )
 
 def _strip_prefix(prefix: str, s: str) -> str:
@@ -217,7 +218,8 @@ def _modules_by_name(
         suffix: str,
         module_prefix: str | None,
         is_haskell_binary: bool,
-        src_main: Artifact | None) -> dict[str, _Module]:
+        src_main: Artifact | None,
+        is_interp: bool) -> dict[str, _Module]:
     modules = {}
     predefined_name_map = {}
     if is_haskell_binary and src_main:
@@ -258,8 +260,11 @@ def _modules_by_name(
         interface = ctx.actions.declare_output("mod-" + suffix, interface_path)
         interfaces = [interface]
 
-        object = ctx.actions.declare_output("mod-" + suffix, object_path)
-        objects = [object]
+        if is_interp:
+            objects = []
+        else:
+            object = ctx.actions.declare_output("mod-" + suffix, object_path)
+            objects = [object]
 
         hie_file = ctx.actions.declare_output("mod-" + suffix, hie_path)
         hie_files = [hie_file]
@@ -883,6 +888,7 @@ CommonCompileModuleArgs = record(
     package_env_args = field(cmd_args),
     target_deps_args = field(cmd_args),
     toolchain_package_db = field(dict[str,HaskellToolchainPackageDbTSet]),
+    is_interp = field(bool),
 )
 
 def add_worker_args(
@@ -1173,6 +1179,7 @@ def _common_compile_module_args(
         package_env_args = package_env_args,
         target_deps_args = target_deps_args,
         toolchain_package_db = toolchain_package_db,
+        is_interp = arg.is_interp,
     )
 
 # Arguments for GHC when running in oneshot mode.
@@ -1232,6 +1239,9 @@ def _compile_oneshot_args(
     )
 
     args.add(cmd_args(package_deps, prepend = "-package"))
+
+    if common_args.is_interp:
+        args.add("--interp")
 
     args.add(module.source)
     return args
@@ -1294,7 +1304,7 @@ def _compile_make_args(
     dep_modules_file = actions.declare_output("dep-modules-{}.json".format(module_name))
     actions.write_json(dep_modules_file, dep_modules, with_inputs = True, pretty = True)
 
-    return cmd_args(
+    args = cmd_args(
         "--dep-modules",
         dep_modules_file,
         "--unit",
@@ -1309,6 +1319,9 @@ def _compile_make_args(
             module.source,
         ],
     )
+    if common_args.is_interp:
+        args.add("--interp")
+    return args
 
 # Arguments for `ghc_wrapper` or the worker needed in both modes.
 def _shared_wrapper_args(
@@ -1404,7 +1417,7 @@ def _compile_module(
     # For the make worker, options related to local package dependencies need to be omitted entirely, since it uses the
     # unit env instead of package DBs to load them.
     if is_worker_execute:
-        wrapper_args_for_file.add(_compile_make_args(
+        make_args = _compile_make_args(
             actions,
             common_args = common_args,
             module_name = module_name,
@@ -1412,7 +1425,8 @@ def _compile_module(
             outputs = outputs,
             dependency_modules = dependency_modules,
             md_file = md_file,
-        ))
+        )
+        wrapper_args_for_file.add(make_args)
 
         # The make worker does not support stub dirs at the moment, so we create it directly.
         # Since the entire module graph's flags are supposed to be fully initialized in the metadata step, we can't pass
@@ -1564,7 +1578,8 @@ def _compile_incr(
 
     for module_name in post_order_traversal(graph):
         module = _get_module_from_map(mapped_modules, module_name)
-        module_tsets[module_name] = _compile_module(
+
+        module_tset = _compile_module(
             actions,
             aux_deps = arg.sources_deps.get(module.source),
             src_envs = arg.srcs_envs.get(module.source),
@@ -1591,6 +1606,7 @@ def _compile_incr(
             module_plugin_flags = arg.srcs_plugin_flags.get(module.source),
             module_plugin_tool_paths = arg.srcs_plugin_tool_paths.get(module.source),
         )
+        module_tsets[module_name] = module_tset
 
 def compile_args_for_non_incr(
         actions: AnalysisActions,
@@ -1952,7 +1968,9 @@ def compile(
         unit_plugin_flags = None,
         srcs_plugin_flags = {},
         extra_tool_paths = [],
-        srcs_plugin_tool_paths = {}) -> CompileResultInfo:
+        srcs_plugin_tool_paths = {},
+        is_interp: bool = False,
+        extra_srcs: list = []) -> CompileResultInfo:
     artifact_suffix = get_artifact_suffix(link_style, enable_profiling)
 
     haskell_toolchain = ctx.attrs._haskell_toolchain[HaskellToolchainInfo]
@@ -1960,7 +1978,7 @@ def compile(
 
     modules = _modules_by_name(
         ctx,
-        sources = ctx.attrs.srcs,
+        sources = ctx.attrs.srcs + extra_srcs,
         is_worker_execute = is_worker_execute,
         link_style = link_style,
         enable_profiling = enable_profiling,
@@ -1968,6 +1986,7 @@ def compile(
         module_prefix = ctx.attrs.module_prefix,
         is_haskell_binary = is_haskell_binary,
         src_main = src_main,
+        is_interp = is_interp,
     )
 
     interfaces = [interface for module in modules.values() for interface in module.interfaces]
@@ -2064,6 +2083,7 @@ def compile(
             unit_plugin_flags = unit_plugin_flags,
             srcs_plugin_flags = srcs_plugin_flags,
             srcs_plugin_tool_paths = srcs_plugin_tool_paths,
+            is_interp = is_interp,
         ),
     ))
 
