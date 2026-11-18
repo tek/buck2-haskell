@@ -132,6 +132,10 @@ def _compiled_module_reduce_as_packagedb_deps(children: list[dict[Artifact, None
         result.update(child)
     return result
 
+# Used by the eval rule to tell the executor which modules to load from the compile outputs of the unit's dependencies.
+def _compiled_module_json_as_dep_modules(mod: CompiledModuleInfo) -> struct:
+    return struct(name = mod.name, package = mod.package, interfaces = mod.interfaces)
+
 CompiledModuleTSet = transitive_set(
     args_projections = {
         "abi": _compiled_module_project_as_abi,
@@ -141,6 +145,9 @@ CompiledModuleTSet = transitive_set(
     },
     reductions = {
         "packagedb_deps": _compiled_module_reduce_as_packagedb_deps,
+    },
+    json_projections = {
+        "dep_modules": _compiled_module_json_as_dep_modules,
     },
 )
 
